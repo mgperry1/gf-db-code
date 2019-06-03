@@ -1,0 +1,7 @@
+##
+#
+export l_extravars="host=standby , standard_task_id=~$$~ , task_id=~$$~ , task_shell_cmd=~/oracle/nfs/share/Oracle_software/rel_mgmt/payload/inventory.ksh~ , task_shell_parms=~999~ , task_name=~Inventory~ , task_app=~DBS~"
+#
+export l_extravars=$(echo $l_extravars|tr "~" '\"')
+echo $l_extravars
+ansible-playbook -i /oracle/app/oracle/ansible/ansible_inventory /oracle/app/oracle/ansible/dbs-playbooks/common/run-payload-script.yml --extra-var "$l_extravars"

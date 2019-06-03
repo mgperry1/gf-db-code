@@ -1,0 +1,25 @@
+---
+ - name: test portal checkin
+   hosts: "{{ host }}"
+   tasks:
+   - name: checkin to the portal
+     shell: "/oracle/nfs/share/Oracle_software/rel_mgmt/payload/rm_cred_cmd.ksh $$"
+     register: shell_result
+
+   - import_role:
+      name: oracle_api_services
+      tasks_from: host_process_status
+     vars:
+      task_key: "{{ ansible_hostname }}"
+      task_rec_type: "LOAD_TEXT"
+      task_area: "Portal Script Output"
+      task_id: "{{ task_id }}"
+      task_status: "SUCCESS"
+      task_message: "Review Data in Body"
+#      task_body: "{{ shell_result.stdout_lines }}"
+      task_body: "{{ shell_result.stdout }}"
+      standard_task_id: " {{ standard_task_id }}"
+
+
+   - debug: 
+       var: shell_result.stdout_lines

@@ -1,0 +1,1 @@
+ansible-playbook -i /oracle/app/oracle/ansible/ansible_inventory /oracle/app/oracle/ansible/dbs-playbooks/common/portal-checkin.yml --extra-var 'host=walletcp, standard_task_id="1234" , task_id="12345"'

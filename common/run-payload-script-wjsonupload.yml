@@ -1,0 +1,67 @@
+---
+ - name: run payload playbook
+   hosts: "{{ host }}"
+   tasks:
+   - import_role:
+      name: oracle_api_services
+      tasks_from: host_process_status
+     vars:
+      task_key: "{{ ansible_hostname }}"
+      task_rec_type: "MESSAGE"
+      task_area: "{{ task_name }}"
+      task_id: "{{ task_id }}"
+      task_status: "INPROGRESS"
+      task_message: "{{ task_name }} Task - Started "
+      task_body: ""
+      standard_task_id: "{{ standard_task_id }}"
+
+   - import_role:
+      name: oracle_api_services
+      tasks_from: host_process_status
+     vars:
+      task_key: "{{ ansible_hostname }}"
+      task_rec_type: "LOAD_JSON"
+      task_area: "{{ task_name }}"
+      task_id: "{{ task_id }}"
+      task_status: "INPROGRESS"
+      task_message: "Report - Mount Capacity "
+      task_body: "{{ ansible_mounts }}"
+      standard_task_id: "{{ standard_task_id }}"
+
+   - name: execute shell cmd
+     #shell: "/oracle/nfs/share/Oracle_software/rel_mgmt/payload/inventory.ksh {{ task_shell_parms }}"
+     #shell: "{{ task_shell_cmd }}"
+     shell: "{{ task_shell_cmd }} {{ task_shell_parms }}"
+     register: shell_result
+
+   - import_role:
+      name: oracle_api_services
+      tasks_from: host_process_status
+     vars:
+      task_key: "{{ ansible_hostname }}"
+      task_rec_type: "LOAD_TXT"
+      task_area: "{{ task_name }}"
+      task_id: "{{ task_id }}"
+      task_status: "INPROGRESS"
+      task_message: "Log file for {{ task_name }}"
+      task_body: "{{ shell_result.stdout }}"
+      standard_task_id: "{{ standard_task_id }}"
+
+
+   - debug: 
+       var: shell_result.stdout_lines
+
+   - import_role:
+      name: oracle_api_services
+      tasks_from: host_process_status
+     vars:
+      task_key: "{{ ansible_hostname }}"
+      task_rec_type: "MESSAGE"
+      task_area: "{{ task_name }}"
+      task_id: "{{ task_id }}"
+      task_status: "COMPLETED"
+      task_message: "{{ task_name }} Task - Ended "
+      task_body: ""
+      standard_task_id: "{{ standard_task_id }}"
+
+

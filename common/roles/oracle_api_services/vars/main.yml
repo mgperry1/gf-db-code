@@ -1,0 +1,11 @@
+---
+
+# https://apex-app01.techlab.com:8443/ords/invent
+
+#json_backup_dir: /apex/unsent_json_body
+
+apex_url: "https://us4sdoel035.corpnet2.com:8443/ords/dbs/playbook"
+
+cluster_nodes: "{{ ansible_play_hosts }}"
+
+master_node: "{{ ansible_play_hosts | first }}"

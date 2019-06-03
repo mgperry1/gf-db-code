@@ -1,0 +1,1 @@
+host=walletcp, standard_task_id="1234" , task_id="12345", task_shell_cmd="/oracle/nfs/share/Oracle_software/rel_mgmt/payload/inventory.ksh" ,task_shell_parms="999", task_name="Inventory"

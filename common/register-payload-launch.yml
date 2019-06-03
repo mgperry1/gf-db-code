@@ -1,0 +1,17 @@
+---
+ - name: register payload launch playbook
+   hosts: "{{ host }}"
+   gather_facts: no
+   tasks:
+   - import_role:
+      name: oracle_api_services
+      tasks_from: host_process_status
+     vars:
+      task_key: "{{ inventory_hostname }}"
+      task_rec_type: "MESSAGE"
+      task_area: "CONNECT-LAUNCH"
+      task_id: "{{ task_id }}"
+      task_status: "LAUNCH"
+      task_message: "{{ task_name }} Task - Launched "
+      task_body: ""
+      standard_task_id: "{{ standard_task_id }}"
