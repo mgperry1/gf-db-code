@@ -1,0 +1,469 @@
+#!/bin/ksh
+# Name          .profile
+VERSION=4.1     # Individual file version
+# Revisions History
+#   Rev Initials Date          Description
+# ================================================================
+#   3.0 GDK      22-Jan-2008   Version inline with chamelon container and 
+#                              added direct emergency access checks
+#   3.1 GDK      18-Feb-2008   Make the message write a function and call
+#                              it before exiting on cancelled logins
+#   3.2 GDK      04-Mar-2008   Handle disconnects and hangups - recording 
+#                              to the audit log file
+#   3.3 GDK      17-Sep-2008   Added AIX section
+#                              Moved ORACLE_HOME before Emergency access call
+#                              so $ORACLE_HOME/bin/ldapsearch is used if not found elsewhere
+#   3.4 GDK      30-Apr-2009   remove logic checking the terminal type
+#   3.5 SAW      20-FEB-2012   Added logic determine if SIO cluster, if it is, do not set ORACLE_SID using srvctl
+#   3.6 GDK      22-Jul-2013   change from using mailx to using an esm pcc code to alert for emergency login
+#   3.7 GDK      01-Oct-2015   override ldapopts if using /oracle.../bin/ldapsearch
+#   3.8 GDK      10-Feb-2016   disable BREAKOUT and add individual histories to prevent command recall collison
+#   3.9 GDK      04-Apr-2016   always use ORACLE_HOME/bin/ldapsearch to avoid connectivity protocol issues.
+#   4.0 SAW      20-Feb-2018   Add use of ca_submit.sh script and sending email to DBH Security (IT_EID_DBH_SECURITY@gsk.com) distribution list
+#   4.1 SAW      22-Feb-2018   Commented out call to profile_submit to no longer use ESM_SUBMIT
+# ================================================================
+# Handle disconnects/hangups
+#
+function handle_disconnect {
+x_trigger="User disconnected/hung up."
+x_reason="Session terminated during the prompt phase."
+x_mudid="CANCELLED"
+who_mudid="ORACLE"
+audit_message
+exit
+}
+
+# Prevents script interupts. this occurs twice once for main and once for function EmergencyDirectAccess
+#
+trap "handle_disconnect" HUP STOP ABRT
+trap "" INT QUIT
+
+# set the audit log date
+#
+logdate=`date +%Y%m%d%H%M%S`
+brkdate=`date +%Y%m%d`
+
+# Handle writing the audit message
+#
+function audit_message {
+
+# default the who_mudid - if null then this is a cancelled login
+#
+x_mudid=${x_mudid:-"CANCELLED"} 
+x_trigger=${x_trigger:-"Cancelled in .profile"}
+x_reason=${x_reason:-"Cancelled in .profile"}
+v_message="DIRECT ACCESS: ${logdate} - `hostname` - ${who_mudid} - ${x_mudid} - ${x_trigger} - ${x_reason}"
+export v_message
+echo "${v_message}" >> ${HOME}/.oracle_access.log
+}
+
+# Handle the emergency direct access logic
+#
+EmergencyDirectAccess () {
+
+# Prevents script interupts. this occurs twice once for main and once for function EmergencyDirectAccess
+#
+trap "handle_disconnect" HUP STOP ABRT 
+trap "" INT QUIT
+
+# Determine how to suppress newline with echo command.
+#
+N=
+C=
+
+if echo "\c" | grep c >/dev/null 2>&1; then
+
+    N='-n'
+
+else
+
+    C='\c'
+
+fi
+
+# Emergency Access Prompts
+#
+echo $N "Do you need to use the Emergency Oracle Process [Y/N] : $C"
+
+read v_prompt1
+
+case "${v_prompt1}" in
+
+    # Continue if Y|y
+    #
+    [Y,y])     ;;
+
+    # Exit if not Y|y
+    #
+
+    [B,b])     return 0;;
+    *)         audit_message
+               exit ;;
+
+esac
+
+echo $N "Are you sure [Y/N] : $C"
+
+read v_prompt1
+
+case "${v_prompt1}" in
+
+    # Continue if Y|y
+    #
+    [Y,y])     ;;
+
+    # Exit if not Y|y
+    #
+
+    *)         audit_message
+               exit ;;
+
+esac
+
+# audit information
+#
+ldapservers="uk-stv-sed1.gsk.com uk-bre-sed1.gsk.com us-rtp-sed1.gsk.com us-kop-sed1.gsk.com"
+
+x_mudid="1";
+
+x_mudcheck="2";
+
+while [[ "${x_mudid}" != "${x_mudcheck}" && "${x_mudid}" != "${brkdate}" ]]; do
+
+  echo $N "Please enter MUDID : $C"
+
+  read x_mudid
+
+  ldapbinary=$(which ${ORACLE_HOME}/bin/ldapsearch | cut -f 1-3 -d " " 2>/dev/null)
+#force ldapopts to blank if using $ORACLE_HOME/bin/ldapsearch
+  ldap_oracle=`echo "${ldapbinary}" | cut -f 2 -d "/" 2>/dev/null`
+  if [[ "${ldap_oracle}" = "oracle" ]]; then
+    ldapopts=""
+  fi
+
+  if [[ "${ldapbinary}" != "no ldapsearch in" ]]; then
+
+    for ldapsrv in ${ldapservers}; do
+    
+      t_mudcheck=$(ldapsearch ${ldapopts} -h ${ldapsrv} -b dc=gsk,dc=com "(uid=${x_mudid})" uid)
+
+      x_mudcheck=$(echo "${t_mudcheck}" |grep "^uid" |tr ' ' '=' |cut -f 1 -d "," |cut -f 2 -d "=" |sort -u)
+
+      if [[ "${x_mudcheck}" = "${x_mudid}" ]]; then
+
+        break
+
+      fi
+
+    done
+
+    if [[ "${x_mudcheck}" != "${x_mudid}" && "${x_mudid}" != "${brkdate}" ]]; then
+
+      echo "ERROR: MUDID not valid - retype a valid MUDID"
+
+    elif [[ -z "${x_mudid}" ]]; then
+
+      echo "ERROR: MUDID cannot be null - reype a valid MUDID"
+
+      x_mudid=1
+
+    fi
+
+  else
+
+    x_mudcheck="${x_mudid}"
+
+  fi
+
+done
+
+x_trigger=""
+
+while [[ -z "${x_trigger}" ]]; do
+
+  echo $N "Please enter Trigger Reference (Remedy Ticket/CCR): $C"
+
+  read x_trigger
+
+  if [[ -z ${x_trigger} ]]; then
+
+    echo "Error: Cannot enter null for Trigger Reference"
+
+  fi
+
+done
+
+x_reason=""
+
+while [[ -z ${x_reason} ]]; do
+
+  echo "Please enter Emergency Reason:"
+  echo $N "I.e.  Reason for not using patronid account: $C"
+
+  read x_reason
+
+  if [[ -z ${x_reason} ]]; then
+
+    echo "Error: Cannot enter null for Emergency Reason"
+
+  fi
+
+done
+
+audit_message
+
+mail_body="If this connection was not made by the person ${x_mudid}, please contact DBS MT immediately."
+
+v_server=$(hostname)               # Local machine name.
+v_msg="ALERT: Oracle Emergency Access login on ${v_server}"
+
+#echo "v_server=[${v_server}]"
+#echo "v_msg=[${v_msg}]"
+#echo "v_message=[${v_message}]"
+
+#profile_submit -c "Yellow" -n "${v_server}" -s "${v_msg}" -p "03PTLA0299" -l "${v_message}"
+
+#Call ca_submit.sh, will replace esm_submit functionality
+/oracle/dba/dba_ora/bin/ca_submit.sh -c "Yellow" -n "${v_server}" -s "${v_msg}" -p "03PTLA0299" -l "${v_message}"
+
+echo "${mail_body}" | ${MAIL} -s "${v_message}" "${x_mudid}@gsk.com" > /dev/null
+
+#Sendmail to DBH Security mail list
+echo "${mail_body}" | ${MAIL} -s "${v_message}" "IT_EID_DBH_SECURITY@gsk.com" > /dev/null
+}
+
+profile_submit ()
+ {
+
+  while getopts c:n:s:p:u:t:d:e:l:i: OPTION;
+  do
+        case "$OPTION" in
+                c) condition="$OPTARG" ;;
+                n) model_name="$OPTARG" ;;
+                s) prob_summary="$OPTARG" ;;
+                p) pcc="$OPTARG" ;;
+                u) status="$OPTARG" ;;
+                t) model_type="$OPTARG" ;;
+                d) alarm_dt="$EVENT_DATE" ;;
+                e) alarm_ct="$OPTARG" ;;
+                l) prob_detail="$OPTARG" ;;
+                i) ip_address="$OPTARG" ;;
+                \?) echo "USAGE:  -c Condition";
+                      echo "           Red, Orange, Yellow, Initial, Brown, Gray";
+                      echo "        -n Model Name";
+                      echo "        -s Problem Summary";
+                      echo "        -p Probable Cause Code";
+                      echo "        -u Status";
+                      echo "           New, Cleared";
+                      echo "        -t Model Type";
+                      echo "        -d Alarm Date Time";
+                      echo "        -e Alarm Clear Date Time";
+                      echo "        -l Problem Detail";
+                      echo "        -i IP Address";
+                      exit 1
+                      ;;
+           esac
+  done
+
+  echo "#AR-Message-Begin             Do Not Delete This Line" > /tmp/mail$$
+  echo "Schema: ESM Trouble Ticket" >> /tmp/mail$$
+  echo "Login: esm_submit" >> /tmp/mail$$
+  echo "Password: esm_submit" >> /tmp/mail$$
+  echo "Action: Submit" >> /tmp/mail$$
+  echo "Format: Short" >> /tmp/mail$$
+  echo "Current Status !        7!:" $status >> /tmp/mail$$
+  # Values: New, Cleared
+  echo "Assigned-Priority !       14!: Low" >> /tmp/mail$$
+  # Values: Low, Medium, High
+  echo "Alarm ID !536870912!: 0" >> /tmp/mail$$
+  echo "Alarm Date/Time !536870918!: " $alarm_dt >> /tmp/mail$$
+  echo "Alarm Clear Date/Time !536870943!: " $alarm_ct >> /tmp/mail$$
+  echo "Condition !       13!: " $condition >> /tmp/mail$$
+  # Values: Red, Orange, Yellow, Initial, Brown, Gray
+  echo "Model Name !        8!: " $model_name >> /tmp/mail$$
+  echo "Problem Summary !        9!: " $prob_summary  >> /tmp/mail$$
+  echo "Model Type !536870914!: " $model_type >> /tmp/mail$$
+  echo "Problem Detail !536870916!: " ${prob_detail} >> /tmp/mail$$
+  echo "Probable Cause Code !536870920!: " $pcc >> /tmp/mail$$
+  echo "IP Address !536870915!: " $ip_address >> /tmp/mail$$
+  echo "IP Address !536870915!: " $ip_address >> /tmp/mail$$
+  echo "Submitter !        2!: profile_submit" >> /tmp/mail$$
+  echo "#AR-Message-End             Do Not Delete This Line" >> /tmp/mail$$
+
+  # Aix Format for Sendmail
+  cat /tmp/mail$$ | ${SENDMAIL} -v esm@usesm.glaxo.com >/dev/null 2>&1
+  cat /tmp/mail$$ | ${SENDMAIL} -v gordon.d.kay@gsk.com >/dev/null 2>&1
+
+  #Sendmail to DBH Security distribution list 
+  cat /tmp/mail$$ | ${SENDMAIL} -v IT_EID_DBH_SECURITY@gsk.com >/dev/null 2>&1
+
+  \rm -f /tmp/mail$$
+
+}
+
+#
+# Beginning of .profile Execution.
+#
+
+# Handle OS specifics
+#
+ldapops=""
+whoopts="-l"
+
+# Verify that these are not NFS, confirm with unix engineering 
+#
+SENDMAIL=/usr/lib/sendmail
+MAIL=mailx
+case "$(uname -s)" in
+
+       SunOS) 
+                PATH2="/usr/ccs/bin:/usr/openwin/bin:/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/ucb"
+                ;; 
+
+       AIX)     PATH2="/usr/ccs/bin:/usr/openwin/bin:/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/ucb"
+		AIXTHREAD_SCOPE="S"
+                SENDMAIL=/usr/sbin/sendmail
+                ;;
+
+       HP-UX)
+                PATH2="/usr/ccs/bin:/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin"
+                ;;
+
+       Linux)
+                PATH2="/usr/kerberos/bin:/usr/local/bin:/bin:/sbin:/usr/bin:/usr/X11R6/bin"
+                MAIL="mail"
+                # Required to stop ldap_sasl_interactive_bind_s: Unknown authentication method
+                #
+                ldapopts="-x"  
+
+                # So output on Linux is same as Sun
+                #
+                whoopts="--lookup"   
+                ;;
+
+       OSF1)
+                PATH2="/usr/ccs/bin:/usr/openwin/bin:/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/ucb"
+                ;;
+
+       *)     echo "Unknown Operating System" ;;
+
+esac
+
+# Define common variables and aliases
+#
+export TERM="vt100"
+export ORACLE_TERM="vt100"
+export ORAENV_ASK="NO"
+
+# Define location of oratab file
+#
+if [[ -f /var/opt/oracle/oratab ]]; then
+
+  ORATAB="/var/opt/oracle/oratab"
+
+else
+
+  ORATAB="/etc/oratab"
+
+fi
+
+export ORATAB
+
+# Define ORADBA_HOME
+# This path has to exist or be simulated by softlinks
+#
+export ORADBA_HOME=/oracle/dba/dba_ora
+
+export ORADBA_BIN=${ORADBA_HOME}/bin
+
+# Please do not put NFS directories in the PATH
+#
+export PATH="${ORADBA_HOME}/bin:${HOME}/bin:/opt/openssh/bin:${PATH2}:${ORACLE_HOME}/bin"
+
+ORACLE_SID=$(awk -F":" '!/^#/ && !/^\$/ && !/\*/ {print $1}' ${ORATAB} | sed 1q)
+
+. oraenv
+
+# Determine if RAC or standalone server, for RAC set ORACLE_SID to the Instance Name
+#
+if [[ -d /oracle/srvm || -d /oracle/srvm_vol || -d /etc/oracle/oprocd || -d /var/opt/oracle/oprocd ]]; then
+  if [[ ! -f /oracle/dba/dba_ora/bin/sio_banner.ksh ]]; then
+    export ORACLE_SID=$(srvctl config database -d ${ORACLE_SID} | awk '/'"$(hostname)"'/{print $2}')
+  fi
+fi
+
+export ORACLE_HOME ORACLE_SID
+
+ORAENV_ASK=YES
+
+# Sarbox acceptable umask
+#
+umask 022
+
+# If interactive define terminal, and various erase/control key sequences
+#
+if tty -s ; then
+
+  alias -x rm='rm -i'
+  alias -x mv='mv -i'
+  alias -x cp='cp -i'
+  stty erase ^? kill "^U" intr "^C" eof "^D"
+  stty hupcl ixon ixoff
+  export EDITOR=vi
+  export FCEDIT=vi
+  export VISUAL=vi
+ # HISTSIZE=300
+ # HISTFILE=$HOME/.bak/.dat/$(who am i | tr -d "()" | awk '{print "." $1 "_" $NF "_"}')$(date +'%Y%m%dT%H%M%S')
+ # mkdir -p $HOME/.bak/.dat/
+
+  PROF_DISPLAY=$(who -m ${whoopts} | awk '{print $NF}' | tr -d '()'):0.0
+  export DISPLAY=${DISPLAY:-${PROF_DISPLAY}}
+
+  who_mudid=$(who am i | cut -f 1 -d " " | cut -f 2 -d "!")
+  who_trmnl=$(who am i | awk '{print $2}' | sed 's@\.@/dev/syscon@')
+
+#  if [[ "${who_mudid}" = "oracle" && "${who_trmnl}" != "/dev/syscon" ]]; then
+
+#    EmergencyDirectAccess
+    
+#  fi
+
+fi
+
+# Unset the traps
+#
+\trap - QUIT ABRT INT HUP STOP
+
+# Machine specific, parameters. Do not define common DBS related params
+# after this section, otherwise the machine specific will be overridden
+#
+cust_prof="${HOME}/.profile_custom"
+
+if [[ -f ${cust_prof} ]]; then
+
+  chmod 750 ${cust_prof} > /dev/null 2>&1
+
+  . ${cust_prof}
+
+fi
+
+# Handle case when login in onto a new box with no software
+#
+ORACLE_SID=${ORACLE_SID:-"No SID"}
+
+# Standard login prompt, function and initial display on login
+#
+WHO=$(whoami)
+
+# Handle case when login in onto a new box with no software
+#
+ORACLE_SID=${ORACLE_SID:-"No SID"}
+
+PS0=$(hostname | cut -d "." -f 1)
+
+# PS1 is single quotes, so it is re-evaluated when the directory changes and displays the current directory
+#
+PS1='
+${PWD}
+${WHO}@${PS0} ${ORACLE_SID} > '
+#
